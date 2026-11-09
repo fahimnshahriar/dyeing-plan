@@ -318,9 +318,18 @@ function moveProgs(ids,machineId,anchorId,pos){
 function nudge(id,d){const f=findProg(id);if(!f)return;const j=f.i+d;if(j<0||j>=f.m.progs.length)return;
   commit(()=>{const a=f.m.progs;[a[f.i],a[j]]=[a[j],a[f.i]]})}
 function sortColor(mid){
-  const m=S.machines.find(x=>x.id===mid); if(m.progs.length<3)return;
-  commit(()=>{const first=m.progs[0],rest=m.progs.slice(1).map((p,i)=>({p,i,k:famOf(cellTxt(p,'M'))[2],e:exactKey(cellTxt(p,'M'))}));
-    rest.sort((a,b)=>a.k-b.k||a.e.localeCompare(b.e)||a.i-b.i);m.progs=[first,...rest.map(x=>x.p)]});
+  // sorts only the programs that are currently shown (R stays first); hidden ones keep their place
+  const m=S.machines.find(x=>x.id===mid);
+  const slots=[];m.progs.forEach((p,i)=>{if(i>0&&isVis(m,i))slots.push(i)});
+  if(slots.length<2)return;
+  commit(()=>{
+    const items=slots.map((i,n)=>({p:m.progs[i],n,k:famOf(cellTxt(m.progs[i],'M'))[2],e:exactKey(cellTxt(m.progs[i],'M'))}));
+    items.sort((a,b)=>a.k-b.k||a.e.localeCompare(b.e)||a.n-b.n);
+    // pin each program's visibility so the same programs stay shown after reordering
+    items.forEach(x=>{if(x.p.vis==='auto')x.p.vis='show'});
+    m.progs.forEach((p,i)=>{if(i>0&&!slots.includes(i)&&p.vis==='auto')p.vis='hide'});
+    slots.forEach((i,n)=>{m.progs[i]=items[n].p});
+  });
 }
 
 /* ============ filtering ============ */
@@ -389,7 +398,7 @@ function render(){
         <span class="sp"></span>
         <label class="meta">Show <input type="number" min="1" max="99" data-showN="${m.id}" value="${m.showN||''}" placeholder="${S.showN}"></label>
         <button data-add="${m.id}" title="Add a program to this machine">＋ Add</button>
-        <button data-sort="${m.id}" title="Sort light → dark colour (R stays first)">Sort colour</button>
+        <button data-sort="${m.id}" title="Sort the shown programs light → dark (R stays first, hidden ones untouched)">Sort colour</button>
         <button data-reset="${m.id}" title="Clear show/hide overrides on this machine">Reset eye</button></div>
       ${col?'':`<table><colgroup><col style="width:28px"><col style="width:40px"><col style="width:13%"><col style="width:23%"><col style="width:24%"><col style="width:7%"><col style="width:74px"><col style="width:54px"><col style="width:13%"><col style="width:8%"><col style="width:150px"></colgroup>
       <thead><tr><th><input type="checkbox" data-all="${m.id}" title="Tick all"></th><th>SL</th><th>Party</th><th>Order</th><th>Colour</th><th>Batch</th><th style="text-align:right">Qty</th><th style="text-align:right">Fill</th><th>F/T</th><th>LD No</th><th></th></tr></thead>
