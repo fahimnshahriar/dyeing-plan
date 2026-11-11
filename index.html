@@ -82,6 +82,29 @@ td.act button:hover{border-color:var(--line);background:var(--panel)}
 #dlg label.w{grid-column:1/-1}
 #dlg input,#dlg select{color:var(--ink);font-size:13px;padding:6px 8px}
 #dlg .btns{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+#bdlg{border:1px solid var(--line);border-radius:12px;padding:0;background:var(--panel);color:var(--ink);width:min(1180px,97vw);height:88vh;max-width:none}
+#bdlg::backdrop{background:rgba(0,0,0,.45)}
+#bdlg .bwrap{display:flex;flex-direction:column;height:100%}
+#bdlg .bhead{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+#bdlg .bhead h2{margin:0;font-size:16px;margin-right:6px}
+#bdlg .bhead label{display:flex;gap:5px;align-items:center;color:var(--mute)}
+#bdlg .bbody{flex:1;overflow:auto;padding:10px 16px}
+#bdlg .bmsg{color:var(--acc);font-weight:600}
+#bdlg .bm{margin-bottom:10px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+#bdlg .bm h4{margin:0;padding:5px 10px;background:var(--acc-soft);font-size:13px;display:flex;gap:10px;align-items:center}
+#bdlg .badge{font-size:10.5px;border-radius:99px;padding:1px 7px;background:var(--hid);color:var(--mute)}
+#bdlg tr.inplan td{opacity:.55}
+.ubar{display:flex;gap:12px;align-items:center;padding:8px 12px;margin:2px 0 10px;background:var(--acc);color:var(--acc-ink);border-radius:10px;cursor:pointer;user-select:none;font-weight:700;font-size:14px}
+.ubar .meta{font-weight:400;color:inherit;opacity:.9}
+#pdlg{border:1px solid var(--line);border-radius:12px;padding:0;background:var(--panel);color:var(--ink);width:min(1190px,97vw);height:92vh;max-width:none}
+#pdlg::backdrop{background:rgba(0,0,0,.5)}
+#pdlg .pw{display:flex;flex-direction:column;height:100%}
+#pdlg .ph{padding:10px 16px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+#pdlg .ph h2{margin:0;font-size:16px}
+#pdlg .ph label{display:flex;gap:5px;align-items:center;color:var(--mute)}
+#pdlg .pb{flex:1;overflow:auto;background:#8a9399;padding:14px;display:flex;justify-content:center}
+#p_frame{width:1123px;min-height:100%;border:0;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35);flex:none}
+#p_info{color:var(--mute)}
 </style>
 </head>
 <body>
@@ -92,10 +115,12 @@ td.act button:hover{border-color:var(--line);background:var(--panel)}
   <span id="fname">no file</span>
   <label>Sheet <select id="sheetSel" disabled></select></label>
   <label>Plan date <input type="date" id="date"></label>
-  <label>Show per machine <input type="number" id="showN" min="1" max="99" value="6" style="width:56px"></label>
-  <label>On import <select id="visMode"><option value="auto">show first N, hide rest</option><option value="file">keep file's hidden rows</option></select></label>
+  <label>Show per machine <input type="number" id="showN" min="1" max="99" value="6" style="width:56px"></label><button id="btnApplyN" title="Hide everything after the first N programs on every machine (renumbers them)">Apply to all</button>
+  <label>On import <select id="visMode"><option value="file">exactly as in Excel (raw serial &amp; hidden rows)</option><option value="auto">renumber: show first N, hide rest</option></select></label>
+  <button id="btnBrowse" disabled title="Look at another day's sheet and copy programs from it">Browse other days</button>
   <button id="btnUndo" disabled>Undo</button>
   <button class="pri" id="btnExport" disabled>Export final program</button>
+  <button id="btnPrint" disabled title="Print the final program (shown programs only), A4 landscape">🖨 Print</button>
   <span id="status"></span>
 </div>
 
@@ -103,11 +128,12 @@ td.act button:hover{border-color:var(--line);background:var(--panel)}
   <aside id="side">
     <div class="card">
       <button class="pri" id="btnAdd" style="width:100%">＋ Add program manually</button>
+      <div class="row"><button id="btnColAll">Collapse all</button><button id="btnExpAll">Expand all</button></div>
     </div>
     <div class="card">
       <h3>Find</h3>
       <div class="row"><input type="text" id="q" placeholder="party / order / colour / LD no"></div>
-      <div class="row"><label><input type="checkbox" id="onlyMatch"> only show matches</label></div>
+      <div class="row"><label><input type="checkbox" id="onlyMatch" checked> show only matching programs (hide other machines)</label></div>
       <div class="row"><button id="btnSelMatch">Select all matches</button><button id="btnClearSel">Clear selection</button></div>
     </div>
     <div class="card">
@@ -151,6 +177,36 @@ td.act button:hover{border-color:var(--line);background:var(--panel)}
   <datalist id="dl_party"></datalist>
   <div class="btns"><button type="button" id="dCancel">Cancel</button><button type="button" id="dAnother">Save &amp; add another</button><button type="button" class="pri" id="dSave">Save</button></div>
 </form></dialog>
+<dialog id="bdlg"><div class="bwrap">
+  <div class="bhead">
+    <h2>Browse other days</h2>
+    <label>Sheet <select id="b_sheet"></select></label>
+    <label><input type="text" id="b_q" placeholder="search party / order / colour / LD" style="width:230px"></label>
+    <label><input type="checkbox" id="b_hid" checked> include hidden rows</label>
+    <span style="flex:1"></span>
+    <button type="button" id="bClose">Close</button>
+  </div>
+  <div class="bhead">
+    <b>Copy ticked (<span id="b_n">0</span>) into the current plan →</b>
+    <label>Machine <select id="b_target"></select></label>
+    <label><select id="b_pos"><option value="end">at end of queue</option><option value="afterR">at top (after running R)</option><option value="top">at very top</option></select></label>
+    <button type="button" class="pri" id="bCopy">Copy ticked</button>
+    <button type="button" id="bClear">Clear ticks</button>
+    <span class="bmsg" id="b_msg"></span>
+  </div>
+  <div class="bbody" id="b_body"></div>
+</div></dialog>
+<dialog id="pdlg"><div class="pw">
+  <div class="ph">
+    <h2>Print final program</h2>
+    <span id="p_units" style="display:flex;gap:6px 16px;flex-wrap:wrap"></span>
+    <label><input type="checkbox" id="p_rem" checked> remarks</label>
+    <label><input type="checkbox" id="p_lot" checked> yarn lot</label>
+    <span id="p_info"></span><span style="flex:1"></span>
+    <button type="button" class="pri" id="p_print">Print</button><button type="button" id="p_close">Close</button>
+  </div>
+  <div class="pb"><iframe id="p_frame" title="print preview"></iframe></div>
+</div></dialog>
 <script>/*!
 
 JSZip v3.10.1 - A JavaScript class for generating and reading zip files
@@ -175,10 +231,10 @@ const NS_R='http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 const pad=n=>String(n).padStart(2,'0');
 
 /* ============ XLSX reader (only what we need) ============ */
-let ZIP=null, SHEETS=[], SST=null, XF=null;
+let ZIP=null, SHEETS=[], SST=null, XF=null, TOPD={};
 async function readXml(path){const f=ZIP.file(path);if(!f)return null;return new DOMParser().parseFromString(await f.async('string'),'application/xml')}
 async function openWorkbook(file){
-  ZIP=await JSZip.loadAsync(file); SST=null; XF=null;
+  ZIP=await JSZip.loadAsync(file); SST=null; XF=null; for(const k in REFC)delete REFC[k];
   const wb=await readXml('xl/workbook.xml'), rel=await readXml('xl/_rels/workbook.xml.rels');
   const rm={}; for(const r of rel.getElementsByTagName('Relationship'))rm[r.getAttribute('Id')]=r.getAttribute('Target');
   SHEETS=[...wb.getElementsByTagName('sheet')].map(s=>{
@@ -234,7 +290,7 @@ const txt=(row,c)=>{const x=row&&row.cells[c];return x==null?'':String(x.v).trim
 
 /* ============ plan model ============ */
 const CARRY=['F','I','J','K','L','M','N','O','P','Q','R','S','T','V','X'];
-let S={sheet:'',date:'',showN:6,machines:[],sel:new Set(),q:'',only:false,group:null,famMode:'fam',collapsed:{}};
+let S={sheet:'',date:'',showN:6,machines:[],sel:new Set(),q:'',only:true,group:null,famMode:'fam',collapsed:{},collapsedUnits:{}};
 let HIST=[],UID=1,DRAG=null;
 
 function parsePlan(rows,maxRow){
@@ -255,7 +311,7 @@ function parsePlan(rows,maxRow){
     if(/^Dyeing Machine Plan/i.test(party)||(pc&&pc.f&&/TEXT\(/i.test(pc.f)))continue;
     if(!['I','J','M','N','L','P'].some(c=>txt(row,c)!==''))continue;
     const cells={}; for(const c of CARRY)if(row.cells[c])cells[c]=row.cells[c];
-    cur.progs.push({id:UID++,cells,hiddenFile:row.hidden,vis:'auto'});
+    cur.progs.push({id:UID++,cells,hiddenFile:row.hidden,slRaw:row.cells.H?row.cells.H.v:'',vis:'auto'});
   }
   return machines;
 }
@@ -294,7 +350,11 @@ const groupKey=p=>S.famMode==='fam'?famOf(cellTxt(p,'M'))[0]:exactKey(cellTxt(p,
 
 /* ============ history / persistence ============ */
 const snap=()=>JSON.stringify({machines:S.machines,showN:S.showN});
-function commit(fn){HIST.push(snap());if(HIST.length>60)HIST.shift();fn();save();render()}
+const msig=m=>(m.showN||'')+'|'+m.progs.map(p=>p.id+p.vis).join(',');
+function commit(fn){HIST.push(snap());if(HIST.length>60)HIST.shift();
+  const before=new Map(S.machines.map(m=>[m.id,msig(m)]));fn();
+  for(const m of S.machines)if(before.get(m.id)!==msig(m))m.progs.forEach(p=>{delete p.slRaw});   // changed machine -> renumber
+  save();render()}
 function undo(){if(!HIST.length)return;const o=JSON.parse(HIST.pop());S.machines=o.machines;S.showN=o.showN;$('#showN').value=S.showN;S.sel=new Set([...S.sel].filter(id=>S.machines.some(m=>m.progs.some(p=>p.id===id))));save();render()}
 function save(){try{localStorage.setItem('mcplan.session',JSON.stringify({sheet:S.sheet,date:S.date,showN:S.showN,machines:S.machines,at:Date.now()}))}catch(e){}}
 function restore(){try{const o=JSON.parse(localStorage.getItem('mcplan.session')||'null');if(!o)return false;S.sheet=o.sheet;S.date=o.date;S.showN=o.showN;S.machines=o.machines;
@@ -342,11 +402,17 @@ const filtering=()=>!!(S.group||S.q.trim());
 
 /* ============ render ============ */
 function loadOf(m){let s=0;m.progs.forEach((p,i)=>{if(isVis(m,i))s+=qtyNum(p)});return s}
-function avgFill(m){if(!m.cap)return null;const v=m.progs.filter((p,i)=>isVis(m,i)&&qtyNum(p)>0);return v.length?v.reduce((a,p)=>a+qtyNum(p)/m.cap,0)/v.length:null}
+function slLabel(m,i){const p=m.progs[i],vis=isVis(m,i);
+  if(p.slRaw!==undefined)return vis?String(p.slRaw):'–';        // untouched machine: serial exactly as in the Excel
+  return vis?(i===0?'R':String(m.progs.slice(1,i+1).filter((_,k)=>isVis(m,k+1)).length)):'–'}
+function fillQty(p){const c=p.cells.N;if(!c)return 0;if(typeof c.v==='number')return c.v;
+  const s=String(c.v).toUpperCase().replace(/\s/g,'');if(!/^[0-9.+X*]+$/.test(s))return 0;      // 1050X6 = six batches of 1050 -> fill uses one batch
+  return s.split('+').reduce((a,t)=>a+(parseFloat(t.split(/[X*]/)[0])||0),0)}
+function avgFill(m){if(!m.cap)return null;const v=m.progs.filter((p,i)=>isVis(m,i)&&qtyNum(p)>0);return v.length?v.reduce((a,p)=>a+fillQty(p)/m.cap,0)/v.length:null}
 const fmt=n=>Math.round(n).toLocaleString('en-US');
 function render(){
   const main=$('#main');
-  $('#btnUndo').disabled=!HIST.length; $('#btnExport').disabled=!S.machines.length;
+  $('#btnUndo').disabled=!HIST.length; $('#btnPrint').disabled=!S.machines.length; $('#btnBrowse').disabled=!SHEETS.length||!S.machines.length; $('#btnExport').disabled=!S.machines.length;
   $('#selN').textContent=S.sel.size;
   if(!S.machines.length){
     main.innerHTML=`<div class="empty"><div id="drop"><h2>Import your MC Plan</h2><p>Drop the Excel file here, or press <b>Import plan</b>.<br>The newest date sheet is opened automatically.</p>
@@ -367,15 +433,15 @@ function render(){
   $('#mvTarget').innerHTML=S.machines.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
   if(cur)$('#mvTarget').value=cur;
   // machines
-  let html='';
+  let html='';const secs=[];
   for(const m of S.machines){
-    const rowsHtml=[]; let prevVis=true, any=false, shown=0;
+    const rowsHtml=[]; let prevVis=true, any=false, shown=0, mcount=0;
     m.progs.forEach((p,i)=>{
       const vis=isVis(m,i); if(vis)shown++;
-      const ok=matches(p); if(S.only&&filtering()&&!ok)return; any=true;
+      const ok=matches(p); if(ok)mcount++; if(S.only&&filtering()&&!ok)return; any=true;
       if(prevVis&&!vis)rowsHtml.push(`<tr class="cut"><td colspan="11">▼ hidden in the final program</td></tr>`); prevVis=vis;
-      const q=qtyNum(p), fill=m.cap&&q?q/m.cap:null, over=fill!=null&&fill>1.02;
-      const sl=vis?(i===0?'R':String(m.progs.slice(1,i+1).filter((_,k)=>isVis(m,k+1)).length)):'–';
+      const q=fillQty(p), fill=m.cap&&q?q/m.cap:null, over=fill!=null&&fill>1.02;
+      const sl=slLabel(m,i);
       const f=famOf(cellTxt(p,'M'));
       rowsHtml.push(`<tr class="p ${vis?'':'hid'} ${S.sel.has(p.id)?'sel':''} ${filtering()&&!ok?'dim':''}" draggable="true" data-id="${p.id}" data-m="${m.id}">
         <td><input type="checkbox" data-sel="${p.id}" ${S.sel.has(p.id)?'checked':''}></td>
@@ -392,8 +458,8 @@ function render(){
     });
     if(S.only&&filtering()&&!any)continue;
     const col=S.collapsed[m.id];
-    html+=`<section class="mc" data-mc="${m.id}">
-      <div class="mch"><span class="nm" data-fold="${m.id}">${col?'▸':'▾'} ${esc(m.name)}</span><span class="meta">${esc(m.unit)} · ${m.progs.length} programs · ${shown} shown</span>
+    secs.push({unit:m.unit,html:`<section class="mc" data-mc="${m.id}">
+      <div class="mch"><span class="nm" data-fold="${m.id}">${col?'▸':'▾'} ${esc(m.name)}</span><span class="meta">${esc(m.unit)} · ${m.progs.length} programs · ${shown} shown${filtering()?' · <b>'+mcount+' match</b>':''}</span>
         <span class="meta">${m.cap?m.cap+' kg · ':''}shown ${fmt(loadOf(m))} kg${avgFill(m)!=null?' · avg fill <span class="pct '+(avgFill(m)>1.02?'hi':avgFill(m)<.7?'lo':'')+'">'+Math.round(avgFill(m)*100)+'%</span>':''}</span>
         <span class="sp"></span>
         <label class="meta">Show <input type="number" min="1" max="99" data-showN="${m.id}" value="${m.showN||''}" placeholder="${S.showN}"></label>
@@ -403,7 +469,12 @@ function render(){
       ${col?'':`<table><colgroup><col style="width:28px"><col style="width:40px"><col style="width:13%"><col style="width:23%"><col style="width:24%"><col style="width:7%"><col style="width:74px"><col style="width:54px"><col style="width:13%"><col style="width:8%"><col style="width:150px"></colgroup>
       <thead><tr><th><input type="checkbox" data-all="${m.id}" title="Tick all"></th><th>SL</th><th>Party</th><th>Order</th><th>Colour</th><th>Batch</th><th style="text-align:right">Qty</th><th style="text-align:right">Fill</th><th>F/T</th><th>LD No</th><th></th></tr></thead>
       <tbody>${rowsHtml.join('')}<tr class="endzone" data-end="${m.id}"><td colspan="11">drop here to add at the end of ${esc(m.name)}</td></tr></tbody></table>`}
-    </section>`;
+    </section>`});
+  }
+  for(const u of [...new Set(S.machines.map(m=>m.unit))]){
+    const ms=S.machines.filter(m=>m.unit===u),ss=secs.filter(x=>x.unit===u); if(!ss.length)continue;
+    const col=S.collapsedUnits[u];
+    html+=`<div class="ubar" data-ufold="${esc(u)}"><span>${col?'▸':'▾'} ${esc(u)}</span><span class="meta">M/C ${esc(ms[0].mc)} – ${esc(ms[ms.length-1].mc)} · ${ms.length} machines · ${ms.reduce((a,m)=>a+m.progs.length,0)} programs${col?' · click to expand':''}</span></div>`+(col?'':ss.map(x=>x.html).join(''));
   }
   main.innerHTML=html||'<div class="empty">No programs match.</div>';
 }
@@ -412,6 +483,7 @@ function render(){
 document.addEventListener('click',e=>{
   const t=e.target;
   const chip=t.closest('.chip'); if(chip&&chip.dataset.g!=null){S.group=S.group===chip.dataset.g?null:chip.dataset.g;render();return}
+  const uf=t.closest('[data-ufold]'); if(uf){const u=uf.dataset.ufold;S.collapsedUnits[u]=!S.collapsedUnits[u];render();return}
   const fold=t.closest('[data-fold]'); if(fold){const id=fold.dataset.fold;S.collapsed[id]=!S.collapsed[id];render();return}
   const up=t.closest('[data-up]'); if(up){nudge(+up.dataset.up,-1);return}
   const dn=t.closest('[data-dn]'); if(dn){nudge(+dn.dataset.dn,1);return}
@@ -427,9 +499,11 @@ document.addEventListener('change',e=>{
   const t=e.target;
   if(t.dataset.sel){const id=+t.dataset.sel;t.checked?S.sel.add(id):S.sel.delete(id);render();return}
   if(t.dataset.all){const m=S.machines.find(x=>x.id===+t.dataset.all);m.progs.forEach(p=>t.checked?S.sel.add(p.id):S.sel.delete(p.id));render();return}
-  if(t.dataset.shown){const m=S.machines.find(x=>x.id===+t.dataset.shown);commit(()=>{m.showN=t.value?Math.max(1,+t.value):null});return}
+  if(t.dataset.shown){const m=S.machines.find(x=>x.id===+t.dataset.shown);commit(()=>{m.showN=t.value?Math.max(1,+t.value):null;m.progs.forEach(p=>p.vis='auto')});return}
 });
-$('#showN').onchange=e=>commit(()=>{S.showN=Math.max(1,+e.target.value||6)});
+$('#showN').onchange=e=>{S.showN=Math.max(1,+e.target.value||6);save()};   // only sets the number; nothing on the plan changes until you press "Apply to all"
+$('#btnApplyN').onclick=()=>{if(HIST.length||true){if(!confirm('Apply "show '+S.showN+' per machine" to every machine?\nThis renumbers all machines (R,1,2,3…) and hides the rest. Machines with their own Show number keep it.'))return}
+  commit(()=>{S.machines.forEach(m=>{if(!m.showN)m.progs.forEach(p=>p.vis='auto')})});flash('Applied: first '+S.showN+' programs shown on each machine')};
 $('#date').onchange=e=>{S.date=e.target.value;save()};
 $('#q').oninput=e=>{S.q=e.target.value;render()};
 $('#onlyMatch').onchange=e=>{S.only=e.target.checked;render()};
@@ -441,6 +515,8 @@ $('#btnMove').onclick=()=>{if(!S.sel.size){flash('Tick some programs first');ret
 const setVis=v=>{if(!S.sel.size)return flash('Tick some programs first');commit(()=>{for(const id of S.sel){const f=findProg(id);if(f)f.p.vis=v}})};
 $('#btnHideSel').onclick=()=>setVis('hide');$('#btnShowSel').onclick=()=>setVis('show');$('#btnAutoSel').onclick=()=>setVis('auto');
 $('#btnUndo').onclick=undo;
+$('#btnColAll').onclick=()=>{S.machines.forEach(m=>S.collapsed[m.id]=true);render()};
+$('#btnExpAll').onclick=()=>{S.collapsed={};S.collapsedUnits={};render()};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!/INPUT|SELECT/.test(document.activeElement.tagName)){e.preventDefault();undo()}});
 let flashT;function flash(m){const s=$('#status');s.textContent=m;clearTimeout(flashT);flashT=setTimeout(()=>s.textContent='',4000)}
 
@@ -513,8 +589,83 @@ $('#dCancel').onclick=()=>$('#dlg').close();
 $('#dform').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();$('#dSave').click()}});
 $('#btnAdd').onclick=()=>openDlg(null);
 
+/* ============ browse other days / copy ============ */
+const REF={machines:[],sel:new Set(),name:''}, REFC={};
+const COPYCOLS=['I','J','K','L','M','N','O','P','Q','R'];
+const pkey=p=>['I','J','M','N','Q'].map(c=>cellTxt(p,c).toLowerCase()).join('|');
+async function openBrowse(){
+  if(!SHEETS.length){flash('Import the workbook first - browsing needs the original file');return}
+  const vis=SHEETS.filter(x=>x.state==='visible');
+  $('#b_sheet').innerHTML=vis.map(x=>`<option>${esc(x.name)}</option>`).join('');
+  const dated=datedSheets().filter(x=>x.state==='visible');const i=dated.findIndex(x=>x.name===S.sheet);
+  const pick=(i>=0&&dated[i+1])?dated[i+1].name:(dated.find(x=>x.name!==S.sheet)||vis[0]).name;
+  $('#b_sheet').value=pick;
+  $('#b_target').innerHTML='<option value="same">same machine number as in that day</option>'+S.machines.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  $('#b_msg').textContent='';$('#bdlg').showModal();await loadRef(pick);
+}
+async function loadRef(name){
+  $('#b_body').innerHTML='<div class="empty">Loading '+esc(name)+' …</div>';
+  if(!REFC[name]){const sh=SHEETS.find(x=>x.name===name);const {rows,maxRow}=await readSheet(sh.path);REFC[name]=parsePlan(rows,maxRow)}
+  REF.machines=REFC[name];REF.name=name;REF.sel.clear();renderRef();
+}
+function renderRef(){
+  const q=$('#b_q').value.trim().toLowerCase(),hid=$('#b_hid').checked;
+  const mine=new Set(S.machines.flatMap(m=>m.progs.map(pkey)));
+  const ok=p=>!q||q.split(/\s+/).every(w=>['I','J','M','L','Q','K','P','R'].some(c=>cellTxt(p,c).toLowerCase().includes(w)));
+  let html='',total=0;
+  for(const m of REF.machines){
+    const rows=m.progs.filter(p=>(hid||!p.hiddenFile)&&ok(p)); if(!rows.length)continue; total+=rows.length;
+    html+=`<div class="bm"><h4><input type="checkbox" data-rall="${m.id}" title="Tick all shown"> ${esc(m.name)} <span class="badge">${rows.length} programs</span></h4><table><colgroup><col style="width:28px"><col style="width:13%"><col style="width:25%"><col style="width:25%"><col style="width:8%"><col style="width:70px"><col style="width:15%"><col style="width:8%"><col style="width:120px"></colgroup><tbody>`+
+    rows.map(p=>`<tr class="p ${p.hiddenFile?'hid':''} ${mine.has(pkey(p))?'inplan':''}" style="cursor:default"><td><input type="checkbox" data-rsel="${p.id}" ${REF.sel.has(p.id)?'checked':''}></td>
+      <td title="${esc(cellTxt(p,'I'))}">${esc(cellTxt(p,'I'))}</td><td title="${esc(cellTxt(p,'J'))}">${esc(cellTxt(p,'J'))}</td><td title="${esc(cellTxt(p,'M'))}"><span class="fam" style="background:${famOf(cellTxt(p,'M'))[3]}"></span>${esc(cellTxt(p,'M'))}</td>
+      <td>${esc(cellTxt(p,'K'))}</td><td class="num">${esc(cellTxt(p,'N'))}</td><td title="${esc(cellTxt(p,'P'))}">${esc(cellTxt(p,'P'))}</td><td>${esc(cellTxt(p,'Q'))}</td>
+      <td class="act">${mine.has(pkey(p))?'<span class="badge">in plan</span>':''}<button data-rone="${p.id}" title="Copy this one">＋</button></td></tr>`).join('')+'</tbody></table></div>';
+  }
+  $('#b_body').innerHTML=total?html:'<div class="empty">No machine programs found in this sheet'+(q?' for this search':'')+'. (Pick a date sheet, e.g. 08.11.26.)</div>';
+  $('#b_n').textContent=REF.sel.size;
+}
+function copyRef(ids){
+  if(!ids.length){$('#b_msg').textContent='Tick some programs first';return}
+  const mode=$('#b_target').value,pos=$('#b_pos').value,idset=new Set(ids);let n=0,miss=0;const cnt=new Map();
+  const dest=[];
+  for(const rm of REF.machines)for(const p of rm.progs){if(!idset.has(p.id))continue;
+    const t=mode==='same'?S.machines.find(m=>String(m.mc)===String(rm.mc)):S.machines.find(m=>m.id===+mode);
+    if(!t){miss++;continue}dest.push([t,p])}
+  commit(()=>{for(const [t,p] of dest){
+    const cells={};for(const c of COPYCOLS)if(p.cells[c])cells[c]=JSON.parse(JSON.stringify(p.cells[c]));
+    const k=cnt.get(t.id)||0;cnt.set(t.id,k+1);
+    const np={id:UID++,cells,hiddenFile:false,vis:'auto'};
+    const idx=pos==='top'?k:pos==='afterR'?Math.min(1+k,t.progs.length):t.progs.length;t.progs.splice(idx,0,np);n++}});
+  REF.sel.clear();renderRef();
+  $('#b_msg').textContent=`Copied ${n} program(s)`+(miss?` - ${miss} skipped (no machine with that number in the current plan)`:'');
+}
+$('#btnBrowse').onclick=openBrowse;$('#bClose').onclick=()=>$('#bdlg').close();
+$('#b_sheet').onchange=e=>loadRef(e.target.value);$('#b_q').oninput=renderRef;$('#b_hid').onchange=renderRef;
+$('#bClear').onclick=()=>{REF.sel.clear();renderRef()};
+$('#bCopy').onclick=()=>copyRef([...REF.sel]);
+$('#b_body').addEventListener('change',e=>{const t=e.target;
+  if(t.dataset.rsel){const id=+t.dataset.rsel;t.checked?REF.sel.add(id):REF.sel.delete(id);$('#b_n').textContent=REF.sel.size;t.closest('tr').classList.remove('sel')}
+  if(t.dataset.rall){const m=REF.machines.find(x=>x.id===+t.dataset.rall);const hid=$('#b_hid').checked;m.progs.forEach(p=>{if(hid||!p.hiddenFile)t.checked?REF.sel.add(p.id):REF.sel.delete(p.id)});renderRef()}});
+$('#b_body').addEventListener('click',e=>{const b=e.target.closest('[data-rone]');if(b)copyRef([+b.dataset.rone])});
+
+/* ============ top date of the sheet (cell in row 2) ============ */
+const serialToIso=v=>{const d=new Date(Math.round((v-25569)*864e5));return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`};
+const isoLabel=iso=>{const d=new Date(iso+'T00:00:00Z');return d.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'2-digit',timeZone:'UTC'}).replace(/,/g,'')};
+async function topDateOf(sh){   // reads only row 2 of the sheet: the date printed at the top of the Excel
+  const f=ZIP.file(sh.path);if(!f)return null;const x=await f.async('string');
+  const m=/<row r="2"[^>]*>([\s\S]*?)<\/row>/.exec(x);if(!m)return null;
+  const found={};for(const c of m[1].matchAll(/<c r="([A-Z]+)2"[^>]*?>\s*<v>([\d.]+)<\/v>/g))found[c[1]]=parseFloat(c[2]);
+  const ok=v=>v>=45292&&v<=47848;                       // a real date between 2024 and 2030, not a qty total
+  for(const col of ['P','K'])if(ok(found[col]))return found[col];
+  return Object.values(found).find(ok)??null;
+}
 /* ============ import ============ */
-const dateOfName=n=>{const m=/^(\d{2})\.(\d{2})\.(\d{2})$/.exec(n);return m?new Date(2000+ +m[3],+m[2]-1,+m[1]):null};
+const dateOfName=n=>{                 // the sheet name is the plan date: 10.11.26, 10-11-26, 10/11/2026, "10.11.26 (2)" ...
+  const m=/^\s*(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2}|\d{4})(?!\d)/.exec(n);if(!m)return null;
+  const d=+m[1],mo=+m[2],y=m[3].length===2?2000+ +m[3]:+m[3];if(mo<1||mo>12||d<1||d>31)return null;return new Date(y,mo-1,d)};
+const dayLabel=d=>d.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'2-digit'}).replace(/,/g,'');
+const sameDay=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+const datedSheets=()=>SHEETS.filter(x=>dateOfName(x.name)).sort((a,b)=>dateOfName(b.name)-dateOfName(a.name));   // newest first, whatever the tab order
 $('#btnImport').onclick=()=>$('#file').click();
 $('#file').onchange=e=>{if(e.target.files[0])importFile(e.target.files[0]);e.target.value=''};
 document.addEventListener('dragover',e=>{if(DRAG==null)e.preventDefault()});
@@ -523,10 +674,15 @@ async function importFile(file){
   try{
     flash('Reading '+file.name+' …');$('#fname').textContent=file.name;
     await openWorkbook(file);
-    const cand=SHEETS.filter(s=>s.state==='visible'&&dateOfName(s.name));  // workbook order: newest tab first
     const sel=$('#sheetSel');sel.disabled=false;
-    sel.innerHTML=SHEETS.filter(s=>s.state==='visible').map(s=>`<option>${esc(s.name)}</option>`).join('');
-    const pick=(cand[0]||SHEETS.find(s=>s.state==='visible')).name;sel.value=pick;
+    const dated=datedSheets(), today=new Date(), limit=new Date(today.getFullYear(),today.getMonth(),today.getDate()+2);
+    // default: the newest dated sheet that is not in the far future (guards against typo'd tabs like 24.07.27)
+    const first=dated.find(x=>x.state==='visible'&&dateOfName(x.name)<=limit)||dated.find(x=>x.state==='visible')||SHEETS.find(x=>x.state==='visible');
+    const pick=first.name;
+    const opt=x=>{const d=dateOfName(x.name);return `<option value="${esc(x.name)}">${esc(x.name)}${d?'  ·  '+dayLabel(d)+(sameDay(d,today)?'  ★ today':''):''}${x.state!=='visible'?'  (hidden tab)':''}</option>`};
+    const others=SHEETS.filter(x=>!dateOfName(x.name)&&x.state==='visible');
+    sel.innerHTML='<optgroup label="Plan sheets - newest date first">'+dated.map(opt).join('')+'</optgroup>'+(others.length?'<optgroup label="Other tabs">'+others.map(opt).join('')+'</optgroup>':'');
+    sel.value=pick;
     await loadSheet(pick);
   }catch(err){console.error(err);flash('Could not read this file: '+err.message)}
 }
@@ -534,11 +690,12 @@ $('#sheetSel').onchange=async e=>{if(HIST.length&&!confirm('Load another sheet? 
 async function loadSheet(name){
   flash('Loading sheet '+name+' …');
   const sh=SHEETS.find(s=>s.name===name);const {rows,maxRow}=await readSheet(sh.path);
-  UID=1;S.machines=parsePlan(rows,maxRow);S.sheet=name;HIST=[];S.sel=new Set();S.group=null;S.collapsed={};
+  UID=1;S.machines=parsePlan(rows,maxRow);S.sheet=name;HIST=[];S.sel=new Set();S.group=null;S.collapsed={};S.collapsedUnits={};
   if($('#visMode').value==='file')S.machines.forEach(m=>m.progs.forEach(p=>{p.vis=p.hiddenFile?'hide':'show'}));
-  const p2=rows.get(2)&&rows.get(2).cells.P;let d=null;
-  if(p2&&typeof p2.v==='number')d=new Date(Math.round((p2.v-25569)*864e5));
-  else{const dn=dateOfName(name);if(dn)d=new Date(Date.UTC(dn.getFullYear(),dn.getMonth(),dn.getDate()))}
+  else S.machines.forEach(m=>m.progs.forEach(p=>{delete p.slRaw}));
+  let d=null;const dn=dateOfName(name);
+  if(dn)d=new Date(Date.UTC(dn.getFullYear(),dn.getMonth(),dn.getDate()));      // the sheet (tab) name is the date to follow
+  else{const r2=rows.get(2);const dc=[r2&&r2.cells.P,r2&&r2.cells.K].find(c=>c&&typeof c.v==='number'&&c.v>=45292&&c.v<=47848);if(dc)d=new Date(Math.round((dc.v-25569)*864e5))}
   S.date=d?`${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`:'';
   $('#date').value=S.date;save();render();
   flash(`${S.machines.length} machines, ${S.machines.reduce((a,m)=>a+m.progs.length,0)} programs loaded`);
@@ -594,7 +751,7 @@ async function exportXlsx(hideExtra){
     const first=r+1; let k=0, visSum=0;
     m.progs.forEach((p,i)=>{
       r++;const vis=isVis(m,i);const cells=[];
-      const sl=i===0?'R':(vis?++k:'');
+      const sl=p.slRaw!==undefined?p.slRaw:(i===0?'R':(vis?++k:''));
       if(vis&&i===0){}
       cells.push(cellXml('H'+r,sl===''?'':sl,bodyStyle('H')));
       cells.push(cellXml('B'+r,m.cap&&p.cells.N&&typeof p.cells.N.v==='number'?p.cells.N.v/m.cap:0,pctB,`IFERROR(N${r}/E${r},0)`),cellXml('C'+r,m.unit,sp),cellXml('D'+r,/^\d+$/.test(m.mc)?+m.mc:m.mc,sp),cellXml('E'+r,m.cap||null,sp));
@@ -635,6 +792,108 @@ $('#btnExport').onclick=async()=>{
     const tot=S.machines.reduce((a,m)=>a+m.progs.length,0),shown=S.machines.reduce((a,m)=>a+m.progs.filter((_,i)=>isVis(m,i)).length,0);
     flash(`Exported ${name} — ${shown} shown, ${tot-shown} hidden`)}catch(err){console.error(err);flash('Export failed: '+err.message)}
 };
+/* ============ print (unit-wise, low ink, punched-file margin) ============ */
+const unitList=()=>[...new Set(S.machines.map(m=>m.unit))];
+const MM=96/25.4, PAGE_H=193*MM, TOP_CONT=20*MM, FOOT=6*MM, SAFE=8, SIGN_H=21*MM;
+function buildUnit(u,rem,lot){
+  const cols=[['SL',3.2,'c'],['Party',10.5],['Order',lot?19.5:22],['Batch',5.8,'c'],...(lot?[['Lot',4.6,'c']]:[]),['Colour',lot?20:22],['Qty',5,'r'],['F/T',13.5],['LD No',7.2,'c'],...(rem?[['Remarks',12.5]]:[])];
+  const sum=cols.reduce((a,c)=>a+c[1],0),span=cols.length,blocks=[];let shown=0,kg=0;
+  for(const m of S.machines.filter(x=>x.unit===u)){
+    const idx=m.progs.map((p,i)=>i).filter(i=>isVis(m,i)); if(!idx.length)continue;
+    const mkg=idx.reduce((a,i)=>a+qtyNum(m.progs[i]),0);shown+=idx.length;kg+=mkg;
+    let h=`<tr class="mh"><td colspan="${span}"><b>${esc(m.name)}</b><span>${idx.length} programs &nbsp;·&nbsp; ${fmt(mkg)} kg</span></td></tr>`;
+    for(const i of idx){const p=m.progs[i],t=c=>esc(cellTxt(p,c)),sl=slLabel(m,i);
+      const cell=(c,cls='')=>`<td class="${cls}"><div class="cl">${t(c)}</div></td>`;
+      h+=`<tr><td class="c sl">${esc(sl==='–'?'':sl)}</td>${cell('I','b')}${cell('J')}${cell('K','c')}${lot?cell('L','c'):''}${cell('M','b')}<td class="r q">${t('N')}</td>${cell('P')}${cell('Q','c b')}${rem?cell('R','rm'):''}</tr>`}
+    blocks.push({html:h,rows:idx.length+1});
+  }
+  if(!shown)return null;
+  return {u,blocks,shown,kg,
+    colgroup:'<colgroup>'+cols.map(c=>`<col style="width:${(c[1]/sum*100).toFixed(2)}%">`).join('')+'</colgroup>',
+    head:'<thead><tr>'+cols.map(c=>`<th class="${c[2]||''}">${c[0]}</th>`).join('')+'</tr></thead>'};
+}
+function printCss(fs,lines){return `@page{size:A4 landscape;margin:7mm 7mm 9mm}
+  *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}
+  body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:#000;font-size:${fs}pt;width:283mm;margin:0 auto}
+  @media screen{body{padding:7mm 0}.pg{border-bottom:1px dashed #aaa;margin-bottom:6mm}}
+  .pg{position:relative;height:193mm;overflow:hidden;break-after:page;page-break-after:always}.pg:last-child{break-after:auto;page-break-after:auto}
+  .top{height:20mm}
+  .band{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:.35mm solid #000;padding-bottom:1.4mm;margin-bottom:2mm}
+  .band h1{margin:0;font-size:${fs*2}pt;letter-spacing:.5px;font-weight:800}.band h1 small{display:block;font-size:${fs*.9}pt;font-weight:400;letter-spacing:.2px;color:#333;margin-top:.5mm}
+  .band .d{text-align:right;font-size:${fs*1.2}pt}.band .d b{font-size:${fs*1.8}pt;display:block;line-height:1.1}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{font-size:${fs*.9}pt;text-transform:uppercase;letter-spacing:.3px;padding:.8mm 1.2mm;text-align:left;font-weight:700;border-top:.3mm solid #000;border-bottom:.3mm solid #000}
+  th.c,td.c{text-align:center}th.r,td.r{text-align:right}
+  td{padding:calc(.45mm + var(--x,0mm)) 1.2mm;border-bottom:.1mm solid #c9c9c9;vertical-align:middle;overflow:hidden}
+  tr{break-inside:avoid}
+  .cl{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:${lines};overflow:hidden;line-height:1.18;word-break:break-word}
+  tr.mh td{border-bottom:.25mm solid #000;font-size:${fs*1.12}pt;padding:calc(1.6mm + var(--x,0mm)) 1.2mm .5mm;font-weight:400}
+  tr.mh td b{font-weight:800}tr.mh td span{float:right;color:#333;font-size:${fs}pt}
+  td.sl{font-weight:800;font-size:${fs*1.1}pt}.b .cl,td.b{font-weight:700}td.q{font-weight:800}
+  td.rm{color:#333;font-style:italic}
+  .sign{display:flex;gap:14mm;margin-top:7mm;padding:0 2mm;font-size:${fs}pt;color:#222}.sign div{flex:1;border-top:.2mm solid #000;padding-top:1mm;text-align:center}
+  .ft{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;font-size:${fs*.85}pt;color:#444}`}
+function printDays(){const dt=S.date?new Date(S.date+'T00:00:00'):new Date();
+  return [dt.toLocaleDateString('en-GB',{weekday:'long'}),dt.toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})]}
+const bandHtml=U=>{const [dn,df]=printDays();return `<div class="band"><div><h1>DYEING MACHINE PLAN &nbsp;·&nbsp; ${esc(U.u.toUpperCase())}${/02/.test(U.u)?' · NEW FLOOR':''}<small>Final program &nbsp;·&nbsp; ${U.blocks.length} machines &nbsp;·&nbsp; ${U.shown} programs &nbsp;·&nbsp; ${fmt(U.kg)} kg</small></h1></div><div class="d"><b>${dn}</b>${df}</div></div>`};
+function measureHtml(Us,fs,lines){   // one long table per unit, only to read the real heights
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${printCss(fs,lines)}.pg{height:auto;overflow:visible}</style></head><body>`+
+   Us.map(U=>`<section class="mu">${bandHtml(U)}<table>${U.colgroup}${U.head}${U.blocks.map(b=>`<tbody class="blk">${b.html}</tbody>`).join('')}</table></section>`).join('')+'</body></html>';
+}
+function paginateUnits(doc,Us){
+  return [...doc.querySelectorAll('section.mu')].map((sec,k)=>{
+    const U=Us[k],bandH=sec.querySelector('.band').getBoundingClientRect().height+2*MM,th=sec.querySelector('thead').getBoundingClientRect().height;
+    const hs=[...sec.querySelectorAll('tbody.blk')].map(t=>t.getBoundingClientRect().height);
+    const cap1=PAGE_H-FOOT-SAFE-bandH-th, capN=PAGE_H-FOOT-SAFE-TOP_CONT-th;
+    const pages=[[]];let y=0,cap=cap1;
+    hs.forEach((h,i)=>{if(y+h>cap&&pages[pages.length-1].length){pages.push([]);y=0;cap=capN}pages[pages.length-1].push(i);y+=h});
+    return {U,pages,hs,bandH,th,cap1,capN};
+  });
+}
+function finalHtml(P,fs,lines){
+  let out='';
+  for(const {U,pages,hs,bandH,th,cap1,capN} of P){
+    pages.forEach((idxs,pi)=>{
+      const first=pi===0,last=pi===pages.length-1,cap=first?cap1:capN;
+      const used=idxs.reduce((a,i)=>a+hs[i],0);let left=cap-used,sign=false;
+      if(last&&left>=SIGN_H+10*MM){sign=true;left-=SIGN_H+4*MM}
+      const rows=idxs.reduce((a,i)=>a+U.blocks[i].rows,0)+1;
+      const x=Math.max(0,Math.min(left/rows/2/MM,last?0.55:0.9)).toFixed(2);       // spread spare space over the rows (capped)
+      out+=`<div class="pg">${first?bandHtml(U):'<div class="top"></div>'}<table>${U.colgroup}${U.head}${idxs.map(i=>`<tbody class="blk" style="--x:${x}mm">${U.blocks[i].html}</tbody>`).join('')}</table>`+
+        (sign?'<div class="sign"><div>Prepared by</div><div>Checked by</div><div>Approved by</div></div>':'')+
+        `<div class="ft"><span>${esc(S.date)}</span><span>${esc(U.u.toUpperCase())} &nbsp;·&nbsp; page ${pi+1} of ${pages.length}</span></div></div>`;
+    });
+  }
+  return `<!doctype html><html><head><meta charset="utf-8"><title>MC Plan ${esc(S.date)}</title><style>${printCss(fs,lines)}</style></head><body>${out||'<p style="font:14px Arial;padding:30px">No programs are shown for the selected unit(s).</p>'}</body></html>`;
+}
+function buildPrintControls(){
+  const us=unitList(),box=$('#p_units');
+  box.innerHTML=us.map((u,i)=>`<span style="display:inline-flex;gap:5px;align-items:center"><input type="checkbox" data-pu="${esc(u)}" checked><b>${esc(u)}</b> max <select data-pl="${esc(u)}">${[1,2,3,4,5,6,7,8].map(n=>`<option ${n===(i===0?6:2)?'selected':''}>${n}</option>`).join('')}</select> pages</span>`).join('');
+}
+function renderPrint(){
+  const fr=$('#p_frame'),rem=$('#p_rem').checked,lot=$('#p_lot').checked;
+  const units=[...document.querySelectorAll('[data-pu]')].filter(x=>x.checked).map(x=>x.dataset.pu);
+  const lim=Object.fromEntries([...document.querySelectorAll('[data-pl]')].map(x=>[x.dataset.pl,+x.value]));
+  const Us=units.map(u=>buildUnit(u,rem,lot)).filter(Boolean);
+  const empty=units.filter(u=>!Us.some(x=>x.u===u));
+  const tries=[[9,2],[8.5,2],[8,2],[7.5,2],[7,2],[8.5,1],[8,1],[7.5,1],[7,1],[6.5,1],[6,1],[5.5,1]];
+  let P=[],pick=tries[0];fr.style.height='1200px';
+  for(const [fs,ln] of tries){
+    const d=fr.contentDocument;d.open();d.write(measureHtml(Us,fs,ln));d.close();
+    P=paginateUnits(d,Us);pick=[fs,ln];
+    if(P.every(p=>p.pages.length<=lim[p.U.u]))break;
+  }
+  const d=fr.contentDocument;d.open();d.write(finalHtml(P,pick[0],pick[1]));d.close();
+  fr.style.height=Math.max(1000,d.documentElement.scrollHeight+30)+'px';
+  const over=P.some(p=>p.pages.length>lim[p.U.u]);
+  $('#p_info').innerHTML=P.map(p=>`${esc(p.U.u)}: <b>${p.pages.length}</b> pg`).join(' · ')+(P.length?` · total <b>${P.reduce((a,p)=>a+p.pages.length,0)}</b> pages · font ${pick[0]}pt${pick[1]===1?' compact':''}`:'')
+    +(empty.length?` · <span style="color:var(--warn)">${empty.map(esc).join(', ')}: no programs shown (all hidden)</span>`:'')+(over?' · <span style="color:var(--warn)">over the page limit - raise it or hide more</span>':'');
+}
+function openPrint(){if(!S.machines.length)return;buildPrintControls();$('#pdlg').showModal();renderPrint()}
+$('#btnPrint').onclick=openPrint;$('#p_close').onclick=()=>$('#pdlg').close();
+$('#p_rem').onchange=renderPrint;$('#p_lot').onchange=renderPrint;
+$('#p_units').addEventListener('change',renderPrint);
+$('#p_print').onclick=()=>{const w=$('#p_frame').contentWindow;w.focus();w.print()};
 const setTop=()=>document.documentElement.style.setProperty('--toph',$('#top').offsetHeight+'px');new ResizeObserver(setTop).observe($('#top'));setTop();
 window.__t={openDlg,S:()=>S,moveProgs,exportXlsx,commit,render};
 render();
