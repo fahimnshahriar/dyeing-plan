@@ -231,10 +231,10 @@ const NS_R='http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 const pad=n=>String(n).padStart(2,'0');
 
 /* ============ XLSX reader (only what we need) ============ */
-let ZIP=null, SHEETS=[], SST=null, XF=null, TOPD={};
+let ZIP=null, SHEETS=[], SST=null, XF=null, TOPD={}, ORIGBUF=null;   // ORIGBUF = untouched bytes of the imported workbook (used by the export to keep every other sheet)
 async function readXml(path){const f=ZIP.file(path);if(!f)return null;return new DOMParser().parseFromString(await f.async('string'),'application/xml')}
 async function openWorkbook(file){
-  ZIP=await JSZip.loadAsync(file); SST=null; XF=null; for(const k in REFC)delete REFC[k];
+  const buf=await file.arrayBuffer(); ZIP=await JSZip.loadAsync(buf); ORIGBUF=buf; SST=null; XF=null; for(const k in REFC)delete REFC[k];
   const wb=await readXml('xl/workbook.xml'), rel=await readXml('xl/_rels/workbook.xml.rels');
   const rm={}; for(const r of rel.getElementsByTagName('Relationship'))rm[r.getAttribute('Id')]=r.getAttribute('Target');
   SHEETS=[...wb.getElementsByTagName('sheet')].map(s=>{
@@ -704,7 +704,7 @@ async function loadSheet(name){
 /* ============ XLSX writer ============ */
 class Styles{
   constructor(){this.fonts=['<font><sz val="11"/><name val="Calibri"/></font>'];this.fills=['<fill><patternFill patternType="none"/></fill>','<fill><patternFill patternType="gray125"/></fill>'];
-    this.xfs=['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'];this.m=new Map();this.fm=new Map();this.flm=new Map()}
+    this.xfs=['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'];this.m=new Map();this.fm=new Map();this.flm=new Map();this.off=0}
   idx(list,map,xml){if(!map.has(xml)){map.set(xml,list.length);list.push(xml)}return map.get(xml)}
   get(o={}){
     const key=JSON.stringify(o);if(this.m.has(key))return this.m.get(key);
@@ -713,7 +713,7 @@ class Styles{
     const flid=o.fill?this.idx(this.fills,this.flm,`<fill><patternFill patternType="solid"><fgColor rgb="FF${o.fill}"/><bgColor indexed="64"/></patternFill></fill>`):0;
     const al=`<alignment vertical="center"${o.h?` horizontal="${o.h}"`:''}${o.wrap?' wrapText="1"':''}/>`;
     const xf=`<xf numFmtId="${o.fmt||0}" fontId="${fid}" fillId="${flid}" borderId="${o.border?1:0}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">${al}</xf>`;
-    const i=this.xfs.length;this.xfs.push(xf);this.m.set(key,i);return i}
+    const i=this.xfs.length+this.off;this.xfs.push(xf);this.m.set(key,i);return i}
   xml(){const b='<border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border>';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="${this.fonts.length}">${this.fonts.join('')}</fonts><fills count="${this.fills.length}">${this.fills.join('')}</fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>${b}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${this.xfs.length}">${this.xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="1"><dxf><font><color rgb="FF9C0006"/></font><fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf></dxfs></styleSheet>`}
 }
@@ -727,13 +727,105 @@ function cellXml(ref,val,style,f){
   return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xe(val)}</t></is></c>`;
 }
 const WIDTH={A:9,B:9,C:8,D:5.3,E:9,F:5.3,G:13.5,H:5,I:18,J:32.4,K:11,L:12,M:42,N:12.7,O:12.7,P:33,Q:14,R:29.6,S:9,T:9,U:9,V:12,W:9,X:14};
-const HIDDEN_COLS='ADEFOSUVW';
+const HIDDEN_COLS='ABCDEFOSTUVWX';   // hidden in the exported sheet: A-F, O, S-X
 const HEAD=['Month','Date','Unit ','M/C','Capacity','Batch No','M/C No','SL','Party','ORDER','Batch S/L','Yarn LOT','COLOR','QTY','Deyable Qty','F/T','LD No','REMARKS','Load Time','Unload Time','Total Time','REMARKS','Loading %','RE-Match /  Re-Wash'];
+
+/* ---- export keeps EVERY sheet of the imported workbook: the new sheet is written INTO a copy of it ---- */
+const xa=v=>xe(v).replace(/"/g,'&quot;');
+function blockCount(x,tag,child){
+  const m=new RegExp('<'+tag+'[\\s>/]').exec(x); if(!m)return 0;
+  const open=x.indexOf('>',m.index); if(x[open-1]==='/')return 0;
+  const end=x.indexOf('</'+tag+'>',open); if(end<0)return 0;
+  return (x.slice(open,end).match(new RegExp('<'+child+'[\\s>/]','g'))||[]).length;
+}
+const styleBase=x=>({fonts:blockCount(x,'fonts','font'),fills:blockCount(x,'fills','fill'),borders:blockCount(x,'borders','border'),cellXfs:blockCount(x,'cellXfs','xf'),dxfs:blockCount(x,'dxfs','dxf')});
+function addToBlock(x,tag,items,oldCount){
+  if(!items.length)return x;
+  const m=new RegExp('<'+tag+'\\b([^>]*?)(/?)>').exec(x);
+  if(!m){ // only dxfs may legitimately be missing
+    if(tag!=='dxfs')throw new Error('styles.xml: <'+tag+'> not found');
+    const blk=`<dxfs count="${items.length}">${items.join('')}</dxfs>`;
+    const k=x.indexOf('<tableStyles'); const at=k>=0?k:x.lastIndexOf('</styleSheet>');
+    return x.slice(0,at)+blk+x.slice(at);
+  }
+  const attrs=/\bcount="\d+"/.test(m[1])?m[1].replace(/\bcount="\d+"/,`count="${oldCount+items.length}"`):m[1]+` count="${oldCount+items.length}"`;
+  if(m[2]==='/')return x.slice(0,m.index)+`<${tag}${attrs}>${items.join('')}</${tag}>`+x.slice(m.index+m[0].length);
+  const close=x.indexOf('</'+tag+'>',m.index); if(close<0)throw new Error('styles.xml: </'+tag+'> not found');
+  return x.slice(0,m.index)+`<${tag}${attrs}>`+x.slice(m.index+m[0].length,close)+items.join('')+x.slice(close);
+}
+function mergeStyles(x,st,b){
+  const thin='<border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border>';
+  const dxf='<dxf><font><color rgb="FF9C0006"/></font><fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf>';
+  const xfs=st.xfs.slice(1).map(v=>v
+    .replace(/fontId="(\d+)"/,(m,a)=>`fontId="${+a+b.fonts}"`)
+    .replace(/fillId="(\d+)"/,(m,a)=>`fillId="${+a?+a-2+b.fills:0}"`)
+    .replace(/borderId="(\d+)"/,(m,a)=>`borderId="${+a?b.borders:0}"`));
+  x=addToBlock(x,'fonts',st.fonts,b.fonts);
+  x=addToBlock(x,'fills',st.fills.slice(2),b.fills);
+  x=addToBlock(x,'borders',[thin],b.borders);
+  x=addToBlock(x,'cellXfs',xfs,b.cellXfs);
+  x=addToBlock(x,'dxfs',[dxf],b.dxfs);
+  return x;
+}
+const NOF={createFolders:false};   // plain package: no empty folder entries
+async function mergeIntoWorkbook(z,sx,st,b,sheetName,sheetXml,last,idx){
+  const rd=pth=>z.file(pth).async('string');
+  let wb=await rd('xl/workbook.xml'), rels=await rd('xl/_rels/workbook.xml.rels'), ct=await rd('[Content_Types].xml');
+  const q="'"+sheetName.replace(/'/g,"''")+"'";
+  const activeOld=+((/<workbookView\b[^>]*?\bactiveTab="(\d+)"/.exec(wb)||[])[1]||0);
+  let path,finalIdx,mode;
+  if(idx>=0){                         // this date already exists in the workbook -> replace that tab in place
+    mode='replaced'; finalIdx=idx; path=SHEETS[idx].path;
+    const old=await rd(path), t=/<tabColor\b[^>]*\/>/.exec(old);
+    if(t)sheetXml=sheetXml.replace('<sheetPr>',()=>'<sheetPr>'+t[0]);          // keep the tab colour
+    const rp=path.replace(/([^/]+)$/,'_rels/$1.rels'); if(z.file(rp))z.remove(rp); // old page-setup relation is not used by the new sheet
+    wb=wb.replace(new RegExp('<definedName\\b(?=[^>]*\\bname="_xlnm\\.(?:_FilterDatabase|Print_Area|Print_Titles)")(?=[^>]*\\blocalSheetId="'+idx+'")[^>]*>[^<]*</definedName>','g'),'');
+  }else{                              // new date -> add a new tab, newest-first like the rest of the book
+    mode='added';
+    const nd=dateOfName(sheetName); let pos=SHEETS.length;
+    if(nd){const k=SHEETS.findIndex(x=>x.state==='visible'&&dateOfName(x.name)&&dateOfName(x.name)<nd); if(k>=0)pos=k}
+    finalIdx=pos;
+    const nums=z.file(/^xl\/worksheets\/sheet\d+\.xml$/).map(f=>+/sheet(\d+)\.xml$/.exec(f.name)[1]);
+    const n=Math.max(0,...nums)+1; path='xl/worksheets/sheet'+n+'.xml';
+    const rid='rId'+(Math.max(0,...[...rels.matchAll(/\bId="rId(\d+)"/g)].map(m=>+m[1]))+1);
+    const sid=Math.max(0,...[...wb.matchAll(/<sheet\b[^>]*\bsheetId="(\d+)"/g)].map(m=>+m[1]))+1;
+    wb=wb.replace(/\blocalSheetId="(\d+)"/g,(m,a)=>+a>=pos?`localSheetId="${+a+1}"`:m);   // sheet-scoped names move with their tab
+    const el=`<sheet name="${xa(sheetName)}" sheetId="${sid}" r:id="${rid}"/>`;
+    const list=[...wb.matchAll(/<sheet\b[^>]*\/>/g)];
+    const at=pos<list.length?list[pos].index:wb.indexOf('</sheets>');
+    wb=wb.slice(0,at)+el+wb.slice(at);
+    rels=rels.replace('</Relationships>',()=>`<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${n}.xml"/></Relationships>`);
+    ct=ct.replace('</Types>',()=>`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`);
+  }
+  // names of the exported sheet (filter + repeat header row)
+  const names=`<definedName name="_xlnm._FilterDatabase" localSheetId="${finalIdx}" hidden="1">${xe(q)}!$A$3:$R$${last}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="${finalIdx}">${xe(q)}!$3:$3</definedName>`;
+  if(wb.includes('</definedNames>'))wb=wb.replace('</definedNames>',()=>names+'</definedNames>');
+  else{const a=wb.includes('</externalReferences>')?'</externalReferences>':'</sheets>'; wb=wb.replace(a,()=>a+'<definedNames>'+names+'</definedNames>')}
+  // open the file on the exported sheet; only ONE tab may be selected (two = grouped sheets in Excel)
+  const ao=SHEETS[activeOld];
+  if(ao&&!(mode==='replaced'&&activeOld===idx)&&z.file(ao.path)){
+    const px=await rd(ao.path); if(/<sheetView\b[^>]*\btabSelected="1"/.test(px))z.file(ao.path,px.replace(/(<sheetView\b[^>]*?) tabSelected="1"/,(m,a)=>a),NOF);
+  }
+  if(/<workbookView\b[^>]*\bactiveTab="/.test(wb))wb=wb.replace(/(<workbookView\b[^>]*?\bactiveTab=")\d+(")/,(m,a,c)=>a+finalIdx+c);
+  else wb=wb.replace('<workbookView',()=>`<workbookView activeTab="${finalIdx}"`);
+  wb=wb.replace(/(<workbookView\b[^>]*?\bfirstSheet=")(\d+)(")/,(m,a,v,c)=>a+Math.min(+v,finalIdx)+c);
+  // the old calculation chain describes cells that no longer exist -> remove it, Excel rebuilds it
+  if(z.file('xl/calcChain.xml')){z.remove('xl/calcChain.xml');rels=rels.replace(/<Relationship\b[^>]*calcChain[^>]*\/>/g,'');ct=ct.replace(/<Override\b[^>]*calcChain[^>]*\/>/g,'')}
+  wb=wb.replace(/<calcPr\b([^>]*?)(\/?)>/,(m,a,sl)=>/fullCalcOnLoad/.test(a)?m:`<calcPr${a} fullCalcOnLoad="1"${sl}>`);
+  z.file('xl/styles.xml',mergeStyles(sx,st,b),NOF);
+  z.file(path,sheetXml,NOF); z.file('xl/workbook.xml',wb,NOF); z.file('xl/_rels/workbook.xml.rels',rels,NOF); z.file('[Content_Types].xml',ct,NOF);
+  const blob=await z.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',compression:'DEFLATE'});
+  return {blob,name:`MC Plan FINAL ${sheetName}.xlsx`,mode,sheets:SHEETS.length+(mode==='added'?1:0)};
+}
 
 async function exportXlsx(hideExtra){
   const st=new Styles(); const rows=[]; const merges=[]; let r=3;
   const dser=S.date?Math.round(Date.UTC(...S.date.split('-').map((x,i)=>i===1?+x-1:+x))/864e5)+25569:null;
   const sheetName=S.date?(()=>{const [y,m,d]=S.date.split('-');return `${d}.${m}.${y.slice(2)}`})():S.sheet;
+  // MERGE MODE: when the original workbook is loaded, new styles are appended to ITS styles.xml (offset indexes)
+  let z0=null,sx=null,base=null,mergeIdx=-1;
+  if(ORIGBUF){z0=await JSZip.loadAsync(ORIGBUF); sx=await z0.file('xl/styles.xml').async('string'); base=styleBase(sx); st.off=base.cellXfs-1; mergeIdx=SHEETS.findIndex(x=>x.name===sheetName)}
+  const dxfId=z0?base.dxfs:0;
   const hs=st.get({sz:10,b:true,border:true,h:'center',fill:'D9E2E6',wrap:true});
   const headRow=(rn)=>rows.push({r:rn,ht:25.5,cells:HEAD.map((h,i)=>cellXml(colName(i+1)+rn,h,hs))});
   // rows 1-3 (totals filled in later)
@@ -776,8 +868,9 @@ async function exportXlsx(hideExtra){
   const rowXml=rows.map(o=>`<row r="${o.r}" ht="${o.ht}" customHeight="1"${o.hidden?' hidden="1"':''}>${o.cells.slice().sort((a,b)=>colIdx(/r="([A-Z]+)/.exec(a)[1])-colIdx(/r="([A-Z]+)/.exec(b)[1])).join('')}</row>`).join('');
   const cols=Object.keys(WIDTH).map(c=>`<col min="${colIdx(c)}" max="${colIdx(c)}" width="${WIDTH[c]}" customWidth="1"${HIDDEN_COLS.includes(c)?' hidden="1"':''}/>`).join('');
   const q=`'${sheetName}'`;
-  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:X${last}"/><sheetViews><sheetView workbookViewId="0" zoomScale="90" zoomScaleNormal="90"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A4" sqref="A4"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${cols}</cols><sheetData>${rowXml}</sheetData><autoFilter ref="A3:R${last}"/><mergeCells count="${merges.length}">${merges.map(x=>`<mergeCell ref="${x}"/>`).join('')}</mergeCells><conditionalFormatting sqref="Q4:Q${last}"><cfRule type="duplicateValues" dxfId="0" priority="1"/></conditionalFormatting><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`;
-  const z=new JSZip();
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:X${last}"/><sheetViews><sheetView${z0?' tabSelected="1"':''} workbookViewId="0" zoomScale="90" zoomScaleNormal="90"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A4" sqref="A4"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${cols}</cols><sheetData>${rowXml}</sheetData><autoFilter ref="A3:R${last}"/><mergeCells count="${merges.length}">${merges.map(x=>`<mergeCell ref="${x}"/>`).join('')}</mergeCells><conditionalFormatting sqref="Q4:Q${last}"><cfRule type="duplicateValues" dxfId="${dxfId}" priority="1"/></conditionalFormatting><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`;
+  if(z0)return await mergeIntoWorkbook(z0,sx,st,base,sheetName,sheet,last,mergeIdx);   // keeps all other sheets
+  const z=new JSZip();   // fallback (no workbook loaded): single-sheet file
   z.file('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>');
   z.file('_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
   z.file('xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${NS_R}"><bookViews><workbookView/></bookViews><sheets><sheet name="${xe(sheetName)}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${xe(q)}!$A$3:$R$${last}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">${xe(q)}!$3:$3</definedName></definedNames><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`);
@@ -787,10 +880,12 @@ async function exportXlsx(hideExtra){
   return {blob,name:`MC Plan FINAL ${sheetName}.xlsx`};
 }
 $('#btnExport').onclick=async()=>{
-  try{const {blob,name}=await exportXlsx(true);const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+  if(!ORIGBUF&&!confirm('The original Excel workbook is not loaded in this session, so the export can only contain THIS sheet.\n\nTo keep all other sheets: press Cancel, use "Import plan (.xlsx)" to load the workbook again, then export.\n\nExport this single sheet anyway?'))return;
+  try{flash('Building Excel …');const {blob,name,mode,sheets}=await exportXlsx(true);const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     const tot=S.machines.reduce((a,m)=>a+m.progs.length,0),shown=S.machines.reduce((a,m)=>a+m.progs.filter((_,i)=>isVis(m,i)).length,0);
-    flash(`Exported ${name} — ${shown} shown, ${tot-shown} hidden`)}catch(err){console.error(err);flash('Export failed: '+err.message)}
+    const sd=sheets?` · all ${sheets} sheets kept (${mode==='added'?'new tab added':'tab updated'})`:' · this sheet only';
+    flash(`Exported ${name} — ${shown} shown, ${tot-shown} hidden${sd}`)}catch(err){console.error(err);flash('Export failed: '+err.message)}
 };
 /* ============ print (unit-wise, low ink, punched-file margin) ============ */
 const unitList=()=>[...new Set(S.machines.map(m=>m.unit))];
