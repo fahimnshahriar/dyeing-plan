@@ -547,7 +547,7 @@ document.addEventListener('drag',e=>{if(e.clientY>0){SCR.y=e.clientY;if(DRAG!=nu
 document.addEventListener('dragover',e=>{SCR.y=e.clientY;if(DRAG!=null&&!SCR.raf)SCR.raf=requestAnimationFrame(scrollLoop)},true);
 document.addEventListener('dragstart',e=>{if(!(e.target.closest&&e.target.closest('tr.p')))return;
   let prev=null;
-  $('#dock').innerHTML='<span class="dl">Drop on a machine →<br>(goes to the end of it)</span>'+S.machines.map(m=>{const g=prev!==null&&prev!==m.unit?' gap':'';prev=m.unit;return `<span class="dk${g}" data-mid="${m.id}" title="${esc(m.name)}">${esc(m.mc)}</span>`}).join('');
+  $('#dock').innerHTML='<span class="dl">Drop on a machine →<br>(goes right after the running R)</span>'+S.machines.map(m=>{const g=prev!==null&&prev!==m.unit?' gap':'';prev=m.unit;return `<span class="dk${g}" data-mid="${m.id}" title="${esc(m.name)}">${esc(m.mc)}</span>`}).join('');
   document.body.classList.add('dragging');SCR.y=e.clientY;
 });
 $('#dock').addEventListener('dragover',e=>{const c=e.target.closest('.dk');if(!c||DRAG==null)return;e.preventDefault();
@@ -555,7 +555,7 @@ $('#dock').addEventListener('dragover',e=>{const c=e.target.closest('.dk');if(!c
 $('#dock').addEventListener('dragleave',e=>{const c=e.target.closest('.dk');if(c)c.classList.remove('over')});
 $('#dock').addEventListener('drop',e=>{const c=e.target.closest('.dk');if(!c||DRAG==null)return;e.preventDefault();
   const ids=S.sel.has(DRAG)?[...S.sel]:[DRAG],mid=+c.dataset.mid;DRAG=null;clearIns();document.body.classList.remove('dragging');
-  commit(()=>moveProgs(ids,mid,null,'end'));flash('Moved to '+S.machines.find(m=>m.id===mid).name);});
+  commit(()=>moveProgs(ids,mid,null,'afterR'));flash('Moved after running R on '+S.machines.find(m=>m.id===mid).name);});
 document.addEventListener('dragover',e=>{if(DRAG==null)return;
   const tr=e.target.closest('tr.p'),end=e.target.closest('tr.endzone'),sec=e.target.closest('.mc');
   if(!sec)return;e.preventDefault();clearIns();
