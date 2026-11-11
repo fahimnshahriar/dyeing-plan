@@ -105,6 +105,7 @@ td.act button:hover{border-color:var(--line);background:var(--panel)}
 #pdlg .pb{flex:1;overflow:auto;background:#8a9399;padding:14px;display:flex;justify-content:center}
 #p_frame{width:1123px;min-height:100%;border:0;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35);flex:none}
 #p_info{color:var(--mute)}
+.mch .rt{display:flex;align-items:center;gap:10px;margin-left:8px;padding-left:12px;border-left:2px solid var(--line)}.mch .mcbadge{font-weight:800;font-size:15px;background:var(--acc);color:var(--acc-ink);padding:3px 10px;border-radius:6px;white-space:nowrap}.mch .rinfo{display:flex;flex-direction:column;gap:1px;text-align:right;line-height:1.25}
 #dock{position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--panel);border-top:2px solid var(--acc);padding:6px 12px 8px;display:none;flex-wrap:wrap;gap:5px;align-items:center;box-shadow:0 -6px 18px rgba(0,0,0,.28)}
 body.dragging #dock{display:flex}
 #dock .dl{font-size:11.5px;color:var(--mute);margin-right:6px}
@@ -921,16 +922,18 @@ $('#btnExport').onclick=async()=>{
 /* ============ print (unit-wise, low ink, punched-file margin) ============ */
 const unitList=()=>[...new Set(S.machines.map(m=>m.unit))];
 const MM=96/25.4, PAGE_H=193*MM, TOP_CONT=20*MM, FOOT=6*MM, SAFE=8, SIGN_H=21*MM;
+function loadPct(m,p){const q=fillQty(p);return m.cap&&q?Math.round(q/m.cap*100)+'%':''}
 function buildUnit(u,rem,lot){
-  const cols=[['SL',3.2,'c'],['Party',10.5],['Order',lot?19.5:22],['Batch',5.8,'c'],...(lot?[['Lot',4.6,'c']]:[]),['Colour',lot?20:22],['Qty',5,'r'],['F/T',13.5],['LD No',7.2,'c'],...(rem?[['Remarks',12.5]]:[])];
+  const cols=[['M/C No',7.4,'c'],['SL',3.2,'c'],['Party',10.5],['Order',lot?19.5:22],['Batch',5.8,'c'],...(lot?[['Lot',4.6,'c']]:[]),['Colour',lot?20:22],['Qty',5,'r'],['%',4,'r'],['F/T',13],['LD No',7.2,'c'],...(rem?[['Remarks',12.5]]:[])];
   const sum=cols.reduce((a,c)=>a+c[1],0),span=cols.length,blocks=[];let shown=0,kg=0;
   for(const m of S.machines.filter(x=>x.unit===u)){
     const idx=m.progs.map((p,i)=>i).filter(i=>isVis(m,i)); if(!idx.length)continue;
     const mkg=idx.reduce((a,i)=>a+qtyNum(m.progs[i]),0);shown+=idx.length;kg+=mkg;
-    let h=`<tr class="mh"><td colspan="${span}"><b>${esc(m.name)}</b><span>${idx.length} programs &nbsp;·&nbsp; ${fmt(mkg)} kg</span></td></tr>`;
-    for(const i of idx){const p=m.progs[i],t=c=>esc(cellTxt(p,c)),sl=slLabel(m,i);
+    const mm=m.name.match(/^(.*?)\s*(\(.*\))?$/);let h='';
+    idx.forEach((i,k)=>{const p=m.progs[i],t=c=>esc(cellTxt(p,c)),sl=slLabel(m,i);
       const cell=(c,cls='')=>`<td class="${cls}"><div class="cl">${t(c)}</div></td>`;
-      h+=`<tr><td class="c sl">${esc(sl==='–'?'':sl)}</td>${cell('I','b')}${cell('J')}${cell('K','c')}${lot?cell('L','c'):''}${cell('M','b')}<td class="r q">${t('N')}</td>${cell('P')}${cell('Q','c b')}${rem?cell('R','rm'):''}</tr>`}
+      h+=`<tr>${k===0?`<td class="mcn" rowspan="${idx.length+1}"><b>${esc(mm[1])}</b><i>${esc(mm[2]||'')}</i></td>`:''}<td class="c sl">${esc(sl==='–'?'':sl)}</td>${cell('I','b')}${cell('J','cc')}${cell('K','c')}${lot?cell('L','c'):''}${cell('M','b cc')}<td class="r q">${t('N')}</td><td class="r lp">${loadPct(m,p)}</td>${cell('P','cc')}${cell('Q','c b')}${rem?cell('R','rm cc'):''}</tr>`});
+    h+=`<tr class="ml gp">${'<td></td>'.repeat(cols.length-1)}</tr>`;   // one blank line after every machine, to write by hand
     blocks.push({html:h,rows:idx.length+1});
   }
   if(!shown)return null;
@@ -957,6 +960,13 @@ function printCss(fs,lines){return `@page{size:A4 landscape;margin:7mm 7mm 9mm}
   tr.mh td b{font-weight:800}tr.mh td span{float:right;color:#333;font-size:${fs}pt}
   td.sl{font-weight:800;font-size:${fs*1.1}pt}.b .cl,td.b{font-weight:700}td.q{font-weight:800}
   td.rm{color:#333;font-style:italic}
+  td.mcn{text-align:center;border-right:.2mm solid #000;font-size:${fs*1.15}pt;line-height:1.25}td.mcn b{display:block;font-weight:800;font-size:${fs*1.3}pt}td.mcn i{display:block;font-style:normal;font-size:${fs*.85}pt;color:#222}
+  td.cc .cl{display:block;-webkit-line-clamp:unset;overflow:visible}   /* Colour / Order / Remarks: never cut */
+  tr.gp td{height:5.2mm}
+  td,th{border-left:.1mm solid #c9c9c9}td:last-child,th:last-child{border-right:.1mm solid #c9c9c9}
+  td.mcn{border-left:0}
+  td.lp{font-weight:400}
+  tr.ml td{border-bottom:.3mm solid #000}
   .sign{display:flex;gap:14mm;margin-top:7mm;padding:0 2mm;font-size:${fs}pt;color:#222}.sign div{flex:1;border-top:.2mm solid #000;padding-top:1mm;text-align:center}
   .ft{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;font-size:${fs*.85}pt;color:#444}`}
 function printDays(){const dt=S.date?new Date(S.date+'T00:00:00'):new Date();
