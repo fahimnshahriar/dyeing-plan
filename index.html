@@ -105,6 +105,12 @@ td.act button:hover{border-color:var(--line);background:var(--panel)}
 #pdlg .pb{flex:1;overflow:auto;background:#8a9399;padding:14px;display:flex;justify-content:center}
 #p_frame{width:1123px;min-height:100%;border:0;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35);flex:none}
 #p_info{color:var(--mute)}
+#dock{position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--panel);border-top:2px solid var(--acc);padding:6px 12px 8px;display:none;flex-wrap:wrap;gap:5px;align-items:center;box-shadow:0 -6px 18px rgba(0,0,0,.28)}
+body.dragging #dock{display:flex}
+#dock .dl{font-size:11.5px;color:var(--mute);margin-right:6px}
+#dock .dk{min-width:36px;text-align:center;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--acc-soft);font-weight:700;cursor:copy}
+#dock .dk.gap{margin-left:14px}
+#dock .dk.over{background:var(--acc);border-color:var(--acc);color:var(--acc-ink);transform:scale(1.12)}
 </style>
 </head>
 <body>
@@ -207,6 +213,7 @@ td.act button:hover{border-color:var(--line);background:var(--panel)}
   </div>
   <div class="pb"><iframe id="p_frame" title="print preview"></iframe></div>
 </div></dialog>
+<div id="dock"></div>
 <script>/*!
 
 JSZip v3.10.1 - A JavaScript class for generating and reading zip files
@@ -524,7 +531,31 @@ let flashT;function flash(m){const s=$('#status');s.textContent=m;clearTimeout(f
 const clearIns=()=>document.querySelectorAll('.ins-top,.ins-bot,.dropping').forEach(x=>x.classList.remove('ins-top','ins-bot','dropping'));
 document.addEventListener('dragstart',e=>{const tr=e.target.closest&&e.target.closest('tr.p');if(!tr)return;
   DRAG=+tr.dataset.id;tr.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain','mc')}catch(_){}});
-document.addEventListener('dragend',()=>{DRAG=null;clearIns();document.querySelectorAll('.dragging').forEach(x=>x.classList.remove('dragging'))});
+document.addEventListener('dragend',()=>{DRAG=null;clearIns();document.body.classList.remove('dragging');document.querySelectorAll('.dragging,.dk.over').forEach(x=>x.classList.remove('dragging','over'))});
+/* --- smooth long-distance dragging: edge auto-scroll + "drop on a machine" bar --- */
+const SCR={y:null,raf:0};
+function scrollLoop(){
+  if(DRAG==null){SCR.raf=0;return}
+  const top=$('#top').offsetHeight,dock=$('#dock').offsetHeight,band=110,H=window.innerHeight;
+  let dy=0;
+  if(SCR.y<top+band){dy=-(6+Math.min(1,(top+band-SCR.y)/(top+band))*44)}                 // near the top  -> scroll up
+  else if(SCR.y>H-dock-band&&SCR.y<=H-dock){dy=6+Math.min(1,(SCR.y-(H-dock-band))/band)*44} // near the bottom -> scroll down
+  if(dy)window.scrollBy(0,dy);
+  SCR.raf=requestAnimationFrame(scrollLoop);
+}
+document.addEventListener('drag',e=>{if(e.clientY>0){SCR.y=e.clientY;if(DRAG!=null&&!SCR.raf)SCR.raf=requestAnimationFrame(scrollLoop)}},true);
+document.addEventListener('dragover',e=>{SCR.y=e.clientY;if(DRAG!=null&&!SCR.raf)SCR.raf=requestAnimationFrame(scrollLoop)},true);
+document.addEventListener('dragstart',e=>{if(!(e.target.closest&&e.target.closest('tr.p')))return;
+  let prev=null;
+  $('#dock').innerHTML='<span class="dl">Drop on a machine →<br>(goes to the end of it)</span>'+S.machines.map(m=>{const g=prev!==null&&prev!==m.unit?' gap':'';prev=m.unit;return `<span class="dk${g}" data-mid="${m.id}" title="${esc(m.name)}">${esc(m.mc)}</span>`}).join('');
+  document.body.classList.add('dragging');SCR.y=e.clientY;
+});
+$('#dock').addEventListener('dragover',e=>{const c=e.target.closest('.dk');if(!c||DRAG==null)return;e.preventDefault();
+  document.querySelectorAll('.dk.over').forEach(x=>{if(x!==c)x.classList.remove('over')});c.classList.add('over')});
+$('#dock').addEventListener('dragleave',e=>{const c=e.target.closest('.dk');if(c)c.classList.remove('over')});
+$('#dock').addEventListener('drop',e=>{const c=e.target.closest('.dk');if(!c||DRAG==null)return;e.preventDefault();
+  const ids=S.sel.has(DRAG)?[...S.sel]:[DRAG],mid=+c.dataset.mid;DRAG=null;clearIns();document.body.classList.remove('dragging');
+  commit(()=>moveProgs(ids,mid,null,'end'));flash('Moved to '+S.machines.find(m=>m.id===mid).name);});
 document.addEventListener('dragover',e=>{if(DRAG==null)return;
   const tr=e.target.closest('tr.p'),end=e.target.closest('tr.endzone'),sec=e.target.closest('.mc');
   if(!sec)return;e.preventDefault();clearIns();
